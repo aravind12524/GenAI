@@ -11,6 +11,7 @@ import time
 import json
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt, wait_fixed
+import subprocess
 
 app = Flask(__name__)
 CORS(app)
@@ -19,9 +20,18 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 VALID_COMPLEXITIES = {"O(1)", "O(log n)", "O(n)", "O(n log n)", "O(n^2)", "O(2^n)", "O(n!)"}
-AI_SERVICE_URL = "http://localhost:11434/api/generate"
+AI_SERVICE_URL = "http://127.0.0.1:11434/api/generate"
 AI_MODEL = "mistral"
 AI_TIMEOUT = 120
+
+# Auto-start Ollama if not running
+try:
+    requests.get("http://127.0.0.1:11434", timeout=2)
+    logger.info("Ollama is already running")
+except:
+    logger.info("Starting Ollama in background...")
+    subprocess.Popen(["ollama", "serve"])
+    time.sleep(3)  # Wait for initialization
 
 question_sets = [
     [
@@ -129,6 +139,11 @@ def call_ai_service(prompt):
         logger.debug(f"Received valid AI response: {ai_response[:100]}...")
         return ai_response
         
+    except requests.exceptions.ConnectionError:
+        logger.warning("Ollama connection failed - attempting to start...")
+        subprocess.Popen(["ollama", "serve"])
+        time.sleep(5)
+        raise  # Will retry due to @retry
     except json.JSONDecodeError as e:
         logger.error(f"AI response JSON decode failed: {str(e)}")
         raise
@@ -443,6 +458,6 @@ def _calculate_score(user_code, challenge_code, ai_code, user_complexity, challe
         return 7, f"👍 Good! Correct with same complexity ({user_complexity})"
     else:
         return 6, f"⚠️ Works but less efficient ({user_complexity} vs original {challenge_complexity})"
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
-
